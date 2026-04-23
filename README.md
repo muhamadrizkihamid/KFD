@@ -1,6 +1,6 @@
 # KFD — Kimid Falacy Done
 # Panduan Lengkap Framework
-# Versi: 1.1 | Tanggal: 2026-04-23
+# Versi: 1.2 | Tanggal: 2026-04-23
 
 ---
 
@@ -8,7 +8,7 @@
 
 1. [Latar Belakang](#1-latar-belakang)
 2. [Permasalahan yang Dipecahkan](#2-permasalahan-yang-dipecahkan)
-3. [Inspirasi: AWS KIRO dan Adopsi Konsep](#3-inspirasi-aws-kiro-dan-adopsi-konsep)
+3. [Perbandingan Framework: KFD vs GSD vs KIRO](#3-perbandingan-framework-kfd-vs-gsd-vs-kiro)
 4. [Filosofi Framework](#4-filosofi-framework)
 5. [Arsitektur Agent Squad](#5-arsitektur-agent-squad)
 6. [Sprint Auto-Detect Mode](#6-sprint-auto-detect-mode)
@@ -42,7 +42,7 @@ nexttask/                      ← repository riset (GitHub: muhamadrizkihamid/n
 │   ├── commands/kfd/          ← /kfd:* commands
 │   ├── agents/squad-*.md      ← 7 global agents
 │   └── templates/             ← template library
-└── AGENT_SQUAD_GUIDE.md       ← dokumen ini
+└── AGENT_SQUAD_GUIDE.md       ← dokumen lengkap framework
 ```
 
 Orang yang install KFD tidak perlu tahu tentang NextTask. Mereka hanya perlu `bash install.sh`.
@@ -94,39 +94,159 @@ Framework terikat ke satu project dengan config yang hardcoded.
 
 ---
 
-## 3. Inspirasi: AWS KIRO dan Adopsi Konsep
+## 3. Perbandingan Framework: KFD vs GSD vs KIRO
 
-### Apa itu AWS KIRO?
+Tiga framework AI-driven development yang populer di ekosistem Claude Code. Masing-masing punya filosofi, kekuatan, dan keterbatasan yang berbeda.
 
-AWS KIRO (diluncurkan 2025) adalah agentic IDE dari Amazon — spec-first AI development tool. Generate requirements, design, dan task breakdown dari satu kalimat. Autonomous code generation dengan human checkpoints. Pakai Claude untuk reasoning, Nova untuk code generation.
+---
 
-### Perbandingan
+### 3.1 Ringkasan Singkat
 
-| Aspek | KFD | AWS KIRO |
-|-------|-----|----------|
-| **Governance** | Eksplisit PO checkpoint — PO yang klik DONE | Lebih otonom, sedikit checkpoint |
-| **Tim simulasi** | 7 peran berbeda dengan batasan tegas | Single-developer centric |
-| **Security gate** | Aktif DUA kali: planning + inline review | Security sebagai hook/plugin |
-| **Audit trail** | Semua aktivitas tercatat di Jira | Audit internal tool |
-| **Issue tracker** | Jira sebagai source of truth | Spec internal KIRO |
-| **Multi-remote** | GitHub + GitLab, dikontrol GIT_REMOTE | GitHub-centric |
-| **Multi-project** | Install sekali, pakai di semua project | Per-workspace setup |
-| **Tech stack** | Agnostic — detect otomatis saat init | Lebih fokus ke Node/JS ecosystem |
-| **Vendor lock-in** | Claude Code CLI, tidak terikat IDE | Terikat ekosistem AWS |
+| Framework | Singkatan | Pembuat | Fokus Utama |
+|-----------|-----------|---------|-------------|
+| **KFD** | Kimid Falacy Done | Kimid / komunitas | Sprint execution + governance enterprise |
+| **GSD** | Get Shit Done | Komunitas Claude Code | Phase-based project delivery + milestone tracking |
+| **KIRO** | (bukan singkatan) | AWS / Amazon | Spec-first agentic IDE, developer velocity |
 
-### Yang Diadopsi dari KIRO ke KFD
+---
 
-**1. Spec sebagai First-Class Artifact** — File formal per sprint: prompt file, UI spec, tester checklist. Semua di-commit ke repo, terlihat di git history.
+### 3.2 Pros & Cons — KFD
 
-**2. Steering Files Pattern** — Rules modular per domain (product, tech, structure, security, testing) dibaca hanya oleh agent yang relevan.
+**Pros:**
+- Governance ketat — PO yang klik DONE, bukan AI
+- 7 agent dengan role separation yang tegas (tidak ada agent yang bisa "seenaknya")
+- Security gate aktif dua kali: planning review + inline review setelah implementasi
+- Audit trail lengkap di Jira — setiap keputusan tercatat dengan siapa, kapan, dan kenapa
+- Multi-remote support (GitHub + GitLab) dikontrol variabel tunggal `GIT_REMOTE`
+- Sprint mode adaptif — 7 mode dipilih otomatis dari Jira label/issue type
+- Project-agnostic — install sekali di laptop, pakai di semua project
+- Persistent context antar sesi via `active-sprint.md`
+- Loop-back routing terstruktur dengan eskalasi otomatis ke PO
 
-**3. Persistent Context** — `active-sprint.md` dan `completed-sprints.md` diupdate setiap sprint untuk menjaga memori antar sesi.
+**Cons:**
+- Butuh Jira — tidak bisa pakai tanpa issue tracker eksternal
+- Setup lebih panjang dari GSD atau KIRO (butuh token Jira, GitHub, GitLab)
+- Tidak cocok untuk eksperimen cepat atau proof-of-concept tanpa governance
+- Overhead tinggi untuk project solo atau freelance kecil
+- Seluruh pipeline butuh waktu lebih lama vs GSD/KIRO untuk scope kecil
 
-**4. Multi-Mode Pipeline** — 7 sprint mode yang dipilih otomatis berdasarkan Jira issue — sama dengan konsep adaptive pipeline KIRO.
+**Paling cocok untuk:** Tim enterprise, project dengan regulasi atau compliance, atau project yang butuh accountability tinggi antar stakeholder.
 
-### Kesimpulan
+---
 
-KIRO adalah **produk** dengan fitur fixed. KFD adalah **process definition** — setiap kemampuan KIRO bisa diimplementasikan sebagai perilaku agent yang diaktifkan sesuai scope. KFD lebih kuat untuk konteks enterprise dengan governance ketat; KIRO lebih cepat untuk developer velocity tanpa formal governance.
+### 3.3 Pros & Cons — GSD
+
+GSD (Get Shit Done) adalah framework berbasis milestone dan phase. Fokusnya pada pemecahan project besar menjadi fase-fase yang bisa dieksekusi mandiri, dengan verifikasi goal di tiap fase.
+
+**Pros:**
+- Roadmap-driven — cocok untuk project baru dari nol
+- Phase breakdown otomatis dari project goal
+- Goal-backward verification — setiap fase diverifikasi terhadap tujuan awal, bukan hanya "task selesai"
+- Built-in research agent sebelum planning (tidak langsung coding)
+- Milestone tracking yang terstruktur dengan VERIFICATION.md per fase
+- Nyquist validation — coverage test yang diperiksa secara sistematis
+- Debugging terstruktur dengan persistent debug state
+- Tidak butuh Jira — bisa jalan dengan hanya git
+
+**Cons:**
+- Tidak ada governance checkpoint eksternal (tidak ada PO approval flow)
+- Tidak ada role separation seperti KFD — satu agent lebih generalis
+- Audit trail hanya di file lokal, tidak di issue tracker
+- Tidak ada security gate yang eksplisit di pipeline standar
+- Sprint mode tidak adaptif — user harus pilih command yang tepat
+- Kurang cocok untuk konteks tim — lebih ke solo developer atau small team
+
+**Paling cocok untuk:** Developer solo atau small team yang mengerjakan project greenfield, tanpa kebutuhan governance formal.
+
+---
+
+### 3.4 Pros & Cons — KIRO (AWS)
+
+KIRO adalah agentic IDE dari Amazon yang diluncurkan 2025. Bukan framework yang di-install di CLI, tapi IDE tersendiri.
+
+**Pros:**
+- Spec-first — generate requirements, design, task breakdown dari satu kalimat
+- UX terbaik dari ketiganya — GUI, tidak perlu CLI
+- Integrasi native dengan AWS ekosistem
+- Onboarding tercepat — tidak perlu setup token atau config manual
+- Pakai Claude untuk reasoning + Nova untuk code generation
+- Human checkpoint di titik-titik kritis (spec review sebelum code)
+
+**Cons:**
+- Terikat ekosistem AWS — tidak bisa dipakai di GitLab, self-hosted, atau enterprise on-prem
+- Tidak open-source — tidak bisa dikustomisasi
+- Governance terbatas — tidak ada PO checkpoint formal
+- Tidak ada multi-role simulation — single-developer centric
+- Spec disimpan internal KIRO, bukan di repo
+- Audit trail terbatas — tidak ada posting ke issue tracker eksternal
+- Single-IDE lock-in (tidak bisa pakai VS Code extensions bersamaan secara optimal)
+
+**Paling cocok untuk:** Developer individual yang sudah pakai AWS dan ingin developer velocity tinggi tanpa overhead governance.
+
+---
+
+### 3.5 Perbandingan Head-to-Head
+
+| Aspek | KFD | GSD | KIRO |
+|-------|-----|-----|------|
+| **Governance** | Eksplisit — PO klik DONE | Tidak ada checkpoint eksternal | Human checkpoint terbatas |
+| **Role separation** | 7 agent dengan batasan tegas | Agent generalis | Single-developer centric |
+| **Security gate** | 2x aktif (planning + inline) | Tidak built-in | Plugin/hook opsional |
+| **Audit trail** | Jira — eksternal, permanen | File lokal saja | Internal tool |
+| **Issue tracker** | Jira (wajib) | Tidak perlu | Spec internal |
+| **Multi-remote** | GitHub + GitLab | GitHub default | AWS CodeCommit / GitHub |
+| **Multi-project** | Install sekali, semua project | Per-project setup | Per-workspace |
+| **Roadmap** | Tidak ada (sprint-driven) | Milestone + phase roadmap | Tidak ada |
+| **Research phase** | Tidak ada | Built-in pre-planning research | Tidak ada |
+| **Sprint modes** | 7 mode adaptif | Command manual | Tidak relevan |
+| **Tech stack** | Agnostic (detect otomatis) | Agnostic | Node/JS focused |
+| **Setup complexity** | Tinggi (banyak token) | Sedang | Rendah (GUI) |
+| **Vendor lock-in** | Claude Code CLI | Claude Code CLI | AWS ekosistem |
+| **Open-source** | Ya | Ya | Tidak |
+
+---
+
+### 3.6 Yang Diadopsi dari KIRO dan GSD ke KFD
+
+**Dari KIRO:**
+
+1. **Spec sebagai First-Class Artifact** — File formal per sprint: prompt file, UI spec, tester checklist. Semua di-commit ke repo, terlihat di git history.
+2. **Steering Files Pattern** — Rules modular per domain (product, tech, structure, security, testing) dibaca hanya oleh agent yang relevan.
+3. **Human checkpoint sebelum code** — Security Analyst planning review sebelum developer mulai.
+
+**Dari GSD:**
+
+1. **Persistent Context** — `active-sprint.md` dan `completed-sprints.md` diupdate setiap sprint — terinspirasi dari mekanisme context file GSD.
+2. **Multi-Mode Pipeline** — 7 sprint mode yang dipilih otomatis — terinspirasi dari command routing GSD.
+3. **Verification sebelum closure** — Tester melakukan checklist-based verification sebelum sprint ditutup.
+
+---
+
+### 3.7 KFD sebagai Framework Universal
+
+KFD dirancang sebagai framework yang bisa dipakai di **konteks apapun**:
+
+| Konteks | Bagaimana KFD Beradaptasi |
+|---------|---------------------------|
+| **Startup kecil** | Mode `hotfix`/`bugfix` — pipeline lebih pendek, overhead rendah |
+| **Enterprise** | Mode `full` — governance lengkap, audit trail di Jira |
+| **Solo developer** | Mode `api-only`/`frontend-only` — skip agent yang tidak dibutuhkan |
+| **Security-critical** | Mode `audit` — Security Analyst jalan mandiri |
+| **Planning sprint** | Mode `design` — tidak ada code push, hanya spec |
+| **Backend microservice** | Mode `api_only` — skip semua UI agent |
+| **Legacy maintenance** | Mode `bugfix` atau `hotfix` tergantung urgensi |
+
+**Kenapa KFD lebih universal dari GSD dan KIRO:**
+
+- GSD bagus untuk project baru tapi tidak punya governance untuk konteks enterprise
+- KIRO bagus untuk developer velocity tapi terikat AWS dan tidak bisa dikustomisasi
+- KFD adalah **process definition** yang bisa dikonfigurasi per project, per tim, per konteks — tanpa bergantung pada vendor atau tools proprietary selain Claude Code
+
+```
+KFD = governance KIRO + adaptability GSD + audit trail enterprise
+```
+
+**Satu install. Semua project. Semua konteks.**
 
 ---
 
@@ -240,7 +360,7 @@ Default   : full mode
 ### 7 Sprint Modes
 
 | Label Jira | Mode | Pipeline | Gunakan Untuk |
-|------------|------|----------|--------------|
+|------------|------|----------|---------------|
 | *(kosong)* | `full` | 7 agent semua | Fitur baru dengan UI + API + DB |
 | `api-only` | `api_only` | Skip Designer + FE | Perubahan API saja |
 | `frontend-only` | `frontend_only` | Skip BE | UI pakai API yang sudah ada |
@@ -252,7 +372,7 @@ Default   : full mode
 ### Close Behavior per Mode
 
 | Mode | Push Code | Verify App | Migrate DB |
-|------|-----------|-----------|-----------|
+|------|-----------|-----------|------------|
 | full | Ya | Ya | Jika ada schema change |
 | api_only | Ya | Ya | Jika ada schema change |
 | frontend_only | Ya | Ya | Tidak |
@@ -465,7 +585,7 @@ Handoff : [agent berikutnya — apa yang harus dilakukan]
 ### Environment Variables
 
 | Variable | Wajib | Keterangan |
-|----------|-------|-----------|
+|----------|-------|------------|
 | `ISSUE_KEY` | Ya | Set per sprint oleh PO |
 | `PROJECT_NAME` | Ya | Nama project |
 | `APP_URL` | Ya | URL app lokal (e.g. http://localhost:3000) |
@@ -515,18 +635,13 @@ Jika ada yang belum ada:
 **Step 1 — Clone repository**
 
 ```bash
-git clone https://github.com/muhamadrizkihamid/nexttask
+git clone https://github.com/muhamadrizkihamid/KFD.git
 ```
 
-**Step 2 — Masuk ke folder installer**
+**Step 2 — Jalankan installer**
 
 ```bash
-cd nexttask/agent-squad-framework
-```
-
-**Step 3 — Jalankan installer**
-
-```bash
+cd KFD
 bash install.sh
 ```
 
@@ -553,7 +668,7 @@ Tampilan yang muncul:
 KFD installed successfully!
 ```
 
-**Step 4 — Verifikasi**
+**Step 3 — Verifikasi**
 
 Buka Claude Code di folder manapun, ketik:
 ```
@@ -591,9 +706,8 @@ Jika muncul prompt setup, instalasi berhasil.
 Jika ada versi baru:
 
 ```bash
-cd nexttask
+cd KFD
 git pull
-cd agent-squad-framework
 bash install.sh
 # Pilih "y" saat ditanya reinstall
 ```
@@ -808,4 +922,4 @@ Cek status         →  /kfd:status
 
 *KFD — Kimid Falacy Done*
 *Dikembangkan di NextTask Research Project*
-*Versi framework: 5.2+ | Dokumen: 1.1 | 2026-04-23*
+*Versi framework: 5.2+ | Dokumen: 1.2 | 2026-04-23*
