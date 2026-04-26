@@ -1,0 +1,9 @@
+# Claude Code local settings (per-laptop, not shared)
+.claude/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
