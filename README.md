@@ -668,10 +668,19 @@ git clone https://github.com/muhamadrizkihamid/KFD.git
 
 **Step 2 — Jalankan installer**
 
+**Linux / macOS / Git Bash di Windows:**
 ```bash
 cd KFD
 bash install.sh
 ```
+
+**Windows PowerShell** (kalau tidak ada bash):
+```powershell
+cd KFD
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+`install.ps1` setara persis dengan `install.sh` — copy file ke `~/.claude/`. Pilih salah satu sesuai environment.
 
 Tampilan yang muncul:
 
