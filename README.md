@@ -734,10 +734,20 @@ Jika muncul prompt setup, instalasi berhasil.
 Jika ada versi baru:
 
 ```bash
-cd KFD
-git pull
-bash install.sh
-# Pilih "y" saat ditanya reinstall
+ Tinggal 3 langkah:
+
+  # 1. Reinstall global di laptop ini
+  cd D:/repository/Project/Kimsol/KFD && bash install.sh
+  # Jawab "y"
+
+  # 2. Refresh lib di project KO-1
+  cp ~/.claude/kfd/lib/jira.sh <path-project-KO-1>/.agent-squad/lib/jira.sh
+
+  # 3. Diagnostik transition Jira
+  cd <path-project-KO-1>
+  source .env.local
+  source .agent-squad/lib/jira.sh
+  jira_list_transitions "$ISSUE_KEY"
 ```
 
 ---
