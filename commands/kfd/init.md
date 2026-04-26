@@ -180,7 +180,16 @@ Write `.agent-squad/context/completed-sprints.md` — initialized empty
 ## Step 10 — Update .gitignore
 
 Add `.env.local` to `.gitignore` if not already present.
+Add `.agent-squad/.kfd-backup/` to `.gitignore` (backup files from update runs, not useful in git).
 Add `.agent-squad/tasks/`, `.agent-squad/checklist/`, `.agent-squad/design/` as tracked (do NOT ignore them).
+
+## Step 10b — Write version marker
+
+Write `.agent-squad/.kfd-version` containing the short git hash of the KFD install:
+```bash
+cat ~/.claude/kfd/.kfd-version 2>/dev/null || echo "unknown"
+```
+If the global version file doesn't exist yet, write `"unknown"`.
 
 ## Step 11 — Post-init summary
 
