@@ -446,6 +446,34 @@ Semua agent membaca `active-sprint.md` di awal sesi untuk restore context.
 4. Set `ISSUE_KEY=PROJ-X` di `.env.local` project
 5. Buka project di Claude Code → jalankan `/kfd:sprint`
 
+### Orchestrator State Machine (6 Tahap)
+
+`/kfd:sprint` adalah **orkestrator end-to-end** — sekali dijalankan, ia menggerakkan semua agent secara otomatis sampai board pindah ke IN REVIEW (atau BLOCKED bila ada hard-stop). Tidak perlu manual handoff antar agent.
+
+Orkestrator berjalan sebagai state machine 6 tahap:
+
+| # | Tahap | Apa yang Terjadi |
+|---|-------|------------------|
+| 1 | **INIT** | Validasi `.env.local` + token. Invoke `squad-scrum-master` dengan `PHASE: SPRINT_START`. Parse return trailer → dapat `SPRINT_MODE`. |
+| 2 | **PIPELINE** | Walk agent sequence sesuai mode terdeteksi. Mode `full` punya cabang paralel (Designer ∥ Sec-plan, lalu BE ∥ FE) — invoke dalam satu pesan via dua Task tool call. |
+| 3 | **VERDICT** | Setelah tiap agent return, parse trailer untuk `VERDICT:` (`DONE` / `CLEAR` / `RISK` / `APPROVED` / `REJECTED`). Trailer hilang = abort dengan error eksplisit. |
+| 4 | **LOOP-BACK** | `Tester REJECTED` atau `Security RISK (HIGH)` → invoke Scrum Master `PHASE: LOOP_BACK_ROUTE` dengan failure payload. SM kembali `INVOKE_NEXT: <agent>` + `LOOP_COUNT: N`. Re-invoke agent target → re-run Security inline + Tester. |
+| 5 | **HARD-STOP** | `LOOP_COUNT > 3` atau Security HIGH masih ada setelah loop-back atau scope change → invoke Scrum Master `PHASE: ESCALATE_TO_PO`. Board → BLOCKED, post escalation, exit. CLOSE tidak dijalankan. |
+| 6 | **CLOSE** | Tester `APPROVED` → invoke Scrum Master `PHASE: SPRINT_CLOSE` dengan `SPRINT_MODE`. Commit + push + Docker verify (skip untuk mode `design` dan `audit`) → board IN REVIEW → SPRINT REPORT ke Jira. |
+
+**Kontrak antar tahap** dijaga oleh return trailer yang wajib di setiap agent:
+
+| Agent / Phase                     | Trailer Wajib                                          |
+|----------------------------------|--------------------------------------------------------|
+| SM `SPRINT_START`                | `SPRINT_MODE: <mode>` + `VERDICT: DONE`                |
+| SM `LOOP_BACK_ROUTE`             | `INVOKE_NEXT: <agent-id\|ESCALATE>` + `LOOP_COUNT: N`  |
+| SM `ESCALATE_TO_PO`              | `VERDICT: ESCALATED`                                   |
+| SM `SPRINT_CLOSE`                | `VERDICT: DONE` (atau `VERDICT: CLOSE_FAILED`)         |
+| Architect / Designer / BE / FE   | `VERDICT: DONE`                                        |
+| Security planning                | `VERDICT: CLEAR` atau `VERDICT: FLAGS`                 |
+| Security inline                  | `VERDICT: CLEAR` atau `VERDICT: RISK` (+ `Severity:`)  |
+| Tester                           | `VERDICT: APPROVED` atau `VERDICT: REJECTED`           |
+
 ### Eksekusi (Full Mode)
 
 ```

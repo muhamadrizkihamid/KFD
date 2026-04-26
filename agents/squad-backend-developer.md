@@ -106,9 +106,26 @@ EOF
 
 ---
 
+## RETURN TRAILER (REQUIRED when invoked by `/kfd:sprint`)
+
+After posting both the 4 MANDATORY OUTPUTS comment AND the DONE comment to Jira, end your
+final chat message with this line on its own:
+
+```
+VERDICT: DONE
+```
+
+If build or tests fail and you cannot resolve them, post a Jira comment explaining the
+blocker and end with `VERDICT: BLOCKED` instead, plus a `Reason:` line above the trailer.
+
+The `Verdict :` line inside the Jira comment is for the audit trail — the chat-message
+trailer is what the orchestrator reads to advance the pipeline. Both are required.
+
+---
+
 ## HARD RULES
 
-- Never start without Architect prompt file
+- Never start without Architect prompt file (except in `hotfix` mode — work from Jira issue directly)
 - Never skip tests
 - Never post DONE without 4 mandatory outputs posted first
 - If build fails → fix before reporting done

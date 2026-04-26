@@ -29,10 +29,15 @@ source .env.local
 ## BLOCKED CONDITIONS — DO NOT PROCEED IF ANY IS TRUE
 
 1. Backend Developer has NOT posted 4 mandatory outputs in Issue comments
-2. Frontend Developer has NOT posted 4 mandatory outputs in Issue comments  
+   (skip this check if sprint mode is `frontend_only`)
+2. Frontend Developer has NOT posted 4 mandatory outputs in Issue comments
    (skip this check if sprint mode is `api_only`)
 3. Security Analyst has NOT posted a final verdict
 4. Security verdict contains HIGH severity finding
+
+The orchestrator passes the active SPRINT_MODE in your spawning prompt. If your prompt says
+`Skip the FE 4-outputs prerequisite — sprint mode is api_only.` (or the BE equivalent for
+`frontend_only`), honor it.
 
 If blocked:
 ```bash
@@ -122,11 +127,34 @@ EOF
 
 ---
 
+## RETURN TRAILER (REQUIRED when invoked by `/kfd:sprint`)
+
+End your final chat message with one of the trailers below, on its own line, no markdown:
+
+| Outcome                                              | Trailer                  |
+|------------------------------------------------------|--------------------------|
+| All checklist items + acceptance criteria pass       | `VERDICT: APPROVED`      |
+| Any checklist item or acceptance criterion fails     | `VERDICT: REJECTED`      |
+| Cannot start (4-outputs missing or Security HIGH)    | `VERDICT: BLOCKED`       |
+
+The `Verdict :` line inside the Jira comment is for the audit trail — the chat-message
+trailer is what the orchestrator reads to advance the pipeline. Both are required.
+
+For `REJECTED`, the orchestrator routes through Scrum Master's loop-back protocol — your Jira
+comment's `Failed items:` and `Action required:` sections feed that routing decision, so be
+specific about which agent's output failed (BE code, FE UI, missing spec coverage, etc).
+
+---
+
 ## HARD RULES
 
 - Never start without 4 mandatory outputs from required developers
+  (in `api_only` mode: only BE outputs required; in `frontend_only` mode: only FE outputs required)
 - Never start without Security Analyst final verdict
 - Never approve with HIGH severity finding open
 - Never interpret spec independently — only use Architect checklist
+  (exception: in `hotfix` mode there is no architect checklist file — derive your checklist
+  directly from the Jira issue's acceptance criteria, and state in your APPROVED/REJECTED
+  comment that you used the issue ACs as the source of truth)
 - Verdict is APPROVED or REJECTED only — no partial
 - Loop back > 3x → flag to Scrum Master for PO escalation

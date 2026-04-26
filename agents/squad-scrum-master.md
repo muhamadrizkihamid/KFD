@@ -15,6 +15,23 @@ Read `.agent-squad/context/active-sprint.md` at the start of every session to re
 
 ---
 
+## INVOCATION PHASES
+
+The orchestrator (`/kfd:sprint`) invokes you in one of four phases. Your spawning prompt
+will include a `PHASE: <name>` line. Run **only** the protocol for that phase, then end your
+final message with the structured trailer described in that section.
+
+| PHASE             | Run section                  | Trailer must include                          |
+|-------------------|------------------------------|------------------------------------------------|
+| `SPRINT_START`    | SPRINT START PROTOCOL        | `SPRINT_MODE:` and `VERDICT: DONE`            |
+| `LOOP_BACK_ROUTE` | LOOP-BACK ROUTING PROTOCOL   | `INVOKE_NEXT:` and `LOOP_COUNT:`              |
+| `ESCALATE_TO_PO`  | ESCALATION PROTOCOL          | `VERDICT: ESCALATED`                           |
+| `SPRINT_CLOSE`    | SPRINT CLOSE PROTOCOL        | `VERDICT: DONE` (or `VERDICT: CLOSE_FAILED`)  |
+
+If the spawning prompt is missing PHASE, default to `SPRINT_START`.
+
+---
+
 ## SHARED LIBRARIES
 
 ```bash
@@ -57,28 +74,95 @@ fi
 echo "Detected sprint mode: $SPRINT_MODE"
 ```
 
-### Step 2 — Update active sprint context
+### Step 2 — Write rich sprint context to active-sprint.md
 
-Write current sprint state to `.agent-squad/context/active-sprint.md`:
-```
-Issue Key    : $ISSUE_KEY
-Title        : [issue title]
-Sprint Mode  : $SPRINT_MODE
-Started      : [date]
-Status       : IN PROGRESS
-Loop-back    : 0/3
+This file is the source of truth for what the current sprint is *about*, not just its status.
+Other agents and humans both read it. Be substantive — include the issue summary, acceptance
+criteria, mode rationale, and the planned pipeline. Use the Write tool to overwrite the file.
+
+Template:
+
+```markdown
+# Active Sprint — $ISSUE_KEY
+
+## Identity
+- Issue key  : $ISSUE_KEY
+- Title      : <issue summary from jira_get_title>
+- Type       : <issue type from jira_get_type>
+- Priority   : <from jira_read_issue>
+- Labels     : <from jira_get_labels>
+- Started    : <YYYY-MM-DD HH:MM>
+- Sprint mode: $SPRINT_MODE
+- Status     : IN PROGRESS
+- Loop-back  : 0/3
+
+## Why this mode
+<one or two sentences explaining which signal triggered SPRINT_MODE — the label, issue type,
+or title keyword that matched in your auto-detect logic>
+
+## What this sprint must deliver
+<paste the issue's description and acceptance criteria here, lightly cleaned. Keep the AC
+list verbatim — Tester reads this if there's no architect checklist (hotfix mode).>
+
+## Pipeline plan
+<output of sprint_pipeline_label $SPRINT_MODE — show the chain so anyone reading knows what
+agents will run and in what order>
+
+## Progress log
+<empty at start — the orchestrator appends one line per completed agent verdict here as the
+pipeline runs. Format per entry:>
+- [HH:MM] [AGENT] — verdict — one-line summary
 ```
 
-### Step 3 — Move board and post SPRINT STARTED
+Use `jira_read_issue $ISSUE_KEY` to source the description and AC content. Do NOT truncate
+the AC — they need to flow through to Tester unchanged.
+
+### Step 3 — Move board and verify the move actually happened
+
+`jira_transition` is case-insensitive and tries common aliases (In Progress, IN PROGRESS,
+In Development, Doing, Start Progress, etc). Always **verify** with `jira_verify_transition`
+after — the POST can succeed for a transition that doesn't end up where you expect, and
+some workflows have the literal name shadowed.
 
 ```bash
-jira_transition "$ISSUE_KEY" "In Progress"
+TRANSITION_OUTPUT=$(jira_transition "$ISSUE_KEY" "In Progress" 2>&1)
+TRANSITION_RC=$?
+
+if [ "$TRANSITION_RC" -ne 0 ] || ! jira_verify_transition "$ISSUE_KEY" "In Progress"; then
+  AVAILABLE=$(jira_list_transitions "$ISSUE_KEY" | paste -sd ', ' -)
+  CURRENT=$(jira_get_status "$ISSUE_KEY")
+
+  jira_post_comment "$ISSUE_KEY" "$(cat <<EOF
+[SCRUM MASTER] — SPRINT START FAILED — $(date +%Y-%m-%d)
+
+Task    : Move board IN PLANNING → In Progress
+Verdict : BLOCKED
+
+Reason  : Could not transition the board. Workflow may not allow this move from
+          the current status, or the target status name is non-standard for this project.
+
+Current status     : $CURRENT
+Available targets  : ${AVAILABLE:-<none>}
+Function output    : $TRANSITION_OUTPUT
+
+Handoff : Project Owner — please verify the Jira workflow exposes a transition
+          to "In Progress" (or an alias) from the current status, or move the
+          issue manually and re-run /kfd:sprint.
+EOF
+)"
+
+  # Trailer for orchestrator — abort the sprint, do not pretend SPRINT_START succeeded.
+  echo ""
+  echo "VERDICT: BLOCKED"
+  echo "Reason: board transition to 'In Progress' failed (current status: $CURRENT)"
+  exit 1
+fi
 
 jira_post_comment "$ISSUE_KEY" "$(cat <<EOF
 [SCRUM MASTER] — SPRINT STARTED — $(date +%Y-%m-%d)
 
 Task    : Sprint initiated for $PROJECT_NAME
-Output  : Board updated to In Progress
+Output  : Board moved $(jira_get_status "$ISSUE_KEY")
 Verdict : DONE
 
 Details:
@@ -102,6 +186,112 @@ EOF
 | `hotfix`        | Developer directly — fix is clear from issue                |
 | `design`        | Architect — spec + App Designer, no code                    |
 | `audit`         | Security Analyst — full scan mode                           |
+
+### Step 5 — Return trailer (REQUIRED for orchestrator)
+
+The trailer you emit depends on how Step 3 finished. The orchestrator only sees your final
+chat message — bash exit codes and stdout from the bash tool DO NOT bubble up. So the trailer
+must mirror what bash actually did.
+
+**If Step 3 succeeded** (board moved to In Progress, SPRINT STARTED comment posted), end your
+final chat message with these two lines exactly, no markdown:
+
+```
+SPRINT_MODE: <full|api_only|frontend_only|bugfix|hotfix|design|audit>
+VERDICT: DONE
+```
+
+**If Step 3 failed** (transition function returned non-zero or `jira_verify_transition` did
+not confirm the move — you'll have seen the SPRINT START FAILED comment posted in that
+branch), end your final chat message with:
+
+```
+Reason: board transition to 'In Progress' failed (current status: <status from jira_get_status>)
+VERDICT: BLOCKED
+```
+
+Do NOT emit `VERDICT: DONE` after a failed transition just because Step 5's template said so —
+that would mislead the orchestrator into walking the pipeline against an issue still in
+IN PLANNING. The orchestrator will halt cleanly on `VERDICT: BLOCKED` and surface the reason
+to the user.
+
+---
+
+## LOOP-BACK ROUTING PROTOCOL
+
+Invoked by the orchestrator with `PHASE: LOOP_BACK_ROUTE` after Tester REJECTED or Security HIGH RISK.
+The spawning prompt will include `LOOP_COUNT: N` (current count, before incrementing) and the failing
+agent's verdict comment.
+
+### Step 1 — Increment counter
+New count = LOOP_COUNT + 1. If new count > 3, return:
+```
+INVOKE_NEXT: ESCALATE
+LOOP_COUNT: <new count>
+```
+The orchestrator will then call you again with `PHASE: ESCALATE_TO_PO`.
+
+### Step 2 — Determine target agent
+Apply `.agent-squad/process/SCRUM_MASTER_PROCESS.md` routing table:
+
+| Finding                       | INVOKE_NEXT value           |
+|-------------------------------|------------------------------|
+| Code implementation wrong (BE)| `squad-backend-developer`    |
+| Code implementation wrong (FE)| `squad-frontend-developer`   |
+| Design-level vulnerability    | `squad-architect`            |
+| Spec ambiguous or incomplete  | `squad-architect`            |
+| UI not matching UI spec       | `squad-frontend-developer`   |
+| UI spec unclear               | `squad-app-designer`         |
+| Scope changed mid-sprint      | `ESCALATE`                   |
+| Same issue ≥ 2x               | `squad-architect`            |
+
+### Step 3 — Update active sprint context
+Set `Loop-back: <new count>/3` in `.agent-squad/context/active-sprint.md`.
+
+### Step 4 — Post routing comment
+Use the routing comment format from `SCRUM_MASTER_PROCESS.md`.
+
+### Step 5 — Return trailer (REQUIRED)
+```
+INVOKE_NEXT: <agent-id-or-ESCALATE>
+LOOP_COUNT: <new count>
+```
+
+---
+
+## ESCALATION PROTOCOL
+
+Invoked with `PHASE: ESCALATE_TO_PO` when loop-back exceeds 3 or scope change detected.
+
+```bash
+source .agent-squad/lib/jira.sh
+source .env.local
+
+jira_transition "$ISSUE_KEY" "BLOCKED" || true   # don't abort — we still need to post the escalation
+ACTUAL_STATUS=$(jira_get_status "$ISSUE_KEY")
+
+jira_post_comment "$ISSUE_KEY" "$(cat <<EOF
+[SCRUM MASTER] — ESCALATION TO PO — $(date +%Y-%m-%d)
+
+Task    : Sprint halted
+Verdict : ESCALATED
+
+Reason  : [loop-back > 3 OR scope change OR Security HIGH unresolved]
+
+Board status after escalation attempt: $ACTUAL_STATUS
+$( [ "$ACTUAL_STATUS" != "Blocked" ] && [ "$ACTUAL_STATUS" != "BLOCKED" ] && \
+   echo "(Board could not be auto-moved to BLOCKED — please move manually.)" || \
+   echo "Board moved to BLOCKED." )
+
+Handoff : Product Owner — decide how to proceed before sprint resumes.
+EOF
+)"
+```
+
+Update `active-sprint.md`: `Status: BLOCKED`. Return trailer:
+```
+VERDICT: ESCALATED
+```
 
 ---
 
@@ -128,12 +318,79 @@ if [ "$SPRINT_MODE" != "design" ] && [ "$SPRINT_MODE" != "audit" ]; then
   curl -sf "$APP_URL" || echo "WARNING: app not responding at $APP_URL"
 fi
 
-# 3. Move board to IN REVIEW
-jira_transition "$ISSUE_KEY" "IN REVIEW"
+# 3. Move board to IN REVIEW — and verify it actually moved
+TRANSITION_OUTPUT=$(jira_transition "$ISSUE_KEY" "IN REVIEW" 2>&1)
+TRANSITION_RC=$?
 
-# 4. Update context
-# - Update active-sprint.md: Status = IN REVIEW
-# - Append to completed-sprints.md
+if [ "$TRANSITION_RC" -ne 0 ] || ! jira_verify_transition "$ISSUE_KEY" "IN REVIEW"; then
+  AVAILABLE=$(jira_list_transitions "$ISSUE_KEY" | paste -sd ', ' -)
+  CURRENT=$(jira_get_status "$ISSUE_KEY")
+  jira_post_comment "$ISSUE_KEY" "$(cat <<EOF
+[SCRUM MASTER] — CLOSE FAILED — $(date +%Y-%m-%d)
+
+Task    : Move board → IN REVIEW
+Verdict : CLOSE_FAILED
+
+Reason  : Code is pushed and app verified, but board did not transition.
+
+Current status     : $CURRENT
+Available targets  : ${AVAILABLE:-<none>}
+Function output    : $TRANSITION_OUTPUT
+
+Handoff : Project Owner — verify Jira workflow exposes "IN REVIEW" (or alias)
+          from the current status, or move the board manually.
+EOF
+)"
+  echo ""
+  echo "VERDICT: CLOSE_FAILED"
+  echo "Reason: board transition to 'IN REVIEW' failed (current status: $CURRENT). Code already pushed."
+  exit 1
+fi
+
+# 4. Update context files — both files, with substance
+
+# 4a. active-sprint.md — flip Status to IN REVIEW, append a Closed-at timestamp.
+#     Do NOT clear the file; the next sprint's SPRINT_START will overwrite it.
+
+# 4b. completed-sprints.md — APPEND a rich entry. Read active-sprint.md to source the
+#     identity block + the progress log built up during the pipeline; read recent Jira
+#     comments to extract key technical decisions.
+#
+# Use the Write/Edit tool with this template (append at the end of the file):
+
+cat <<EOF >> .agent-squad/context/completed-sprints.md
+
+---
+
+### $ISSUE_KEY — <title> — $(date +%Y-%m-%d)
+
+- Mode     : $SPRINT_MODE
+- Outcome  : APPROVED → IN REVIEW
+- Duration : <Started timestamp from active-sprint.md → now>
+- Loop-backs used: <N from active-sprint.md>/3
+
+**What was built**
+<2-4 bullets summarizing the actual deliverable — pull from Architect's DONE comment,
+Backend Developer's DONE comment, Frontend Developer's DONE comment. Do NOT just paste
+the issue title.>
+
+**Files changed**
+<list from BE + FE 4-mandatory-outputs comments — section "1. Files modified">
+
+**Key technical decisions** (will be useful for future sprints)
+<bullet list. Source from Architect's "Details:" section in their DONE comment.>
+
+**Security findings (logged as tech debt)**
+<list any LOW/MEDIUM findings from Security Analyst's inline review — leave empty if CLEAR>
+
+**Open Tech Debt**
+<- [item description] — severity — sprint $ISSUE_KEY>
+EOF
+```
+
+NOTE: The `<...>` placeholders must be replaced with real content read from Jira comments and
+`active-sprint.md`. Do not write literal angle-brackets to the file — that defeats the purpose
+of the context history.
 
 # 5. Post Sprint Report
 REMOTE_LABEL=$(git_remote_label)
@@ -160,6 +417,30 @@ Handoff : Product Owner — please open $APP_URL to review.
 EOF
 )"
 ```
+
+### Final step — Return trailer (REQUIRED for orchestrator)
+
+The trailer mirrors what bash actually did. Bash exit codes do NOT bubble up to the
+orchestrator — only your final chat message does.
+
+**If every close step succeeded** (commit + push + Docker verify + transition to IN REVIEW
++ context file updates), end your final chat message with:
+
+```
+VERDICT: DONE
+```
+
+**If any close step failed** — board transition to IN REVIEW errored, push failed, Docker
+came up but `curl $APP_URL` returned non-2xx, or context files could not be written — end
+your final chat message with the reason BEFORE the trailer, like:
+
+```
+Reason: <which step failed and what the error said>
+VERDICT: CLOSE_FAILED
+```
+
+For partial failures (e.g. code is pushed but the board didn't move to IN REVIEW), include
+that nuance in the Reason so the user knows what's left to do manually.
 
 ---
 
@@ -195,17 +476,11 @@ sprint_first_handoff() {
 
 ---
 
-## LOOP BACK PROTOCOL
+## LOOP BACK NOTES
 
-Route per `.agent-squad/process/SCRUM_MASTER_PROCESS.md`
-
-```bash
-# If HIGH severity finding
-jira_transition "$ISSUE_KEY" "BLOCKED"
-jira_post_comment "$ISSUE_KEY" "..."
-```
-
-Loop-back > 3x → escalate to Product Owner immediately.
+Detailed routing logic lives in the LOOP-BACK ROUTING PROTOCOL section above and in
+`.agent-squad/process/SCRUM_MASTER_PROCESS.md`. The orchestrator drives loop-back invocations —
+do not call yourself or other agents directly.
 
 ---
 

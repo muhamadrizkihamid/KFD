@@ -109,6 +109,25 @@ EOF
 
 ---
 
+## RETURN TRAILER (REQUIRED when invoked by `/kfd:sprint`)
+
+End your final chat message with one of the trailers below, on its own line, no markdown:
+
+| Phase you ran                         | Trailer                                                       |
+|--------------------------------------|---------------------------------------------------------------|
+| `PHASE: PLANNING_REVIEW` — no concerns| `VERDICT: CLEAR`                                              |
+| `PHASE: PLANNING_REVIEW` — concerns   | `VERDICT: FLAGS`                                              |
+| `PHASE: INLINE_REVIEW` — clean        | `VERDICT: CLEAR`                                              |
+| `PHASE: INLINE_REVIEW` — issues found | `VERDICT: RISK` + a `Severity: <LOW\|MEDIUM\|HIGH>` line above|
+| `PHASE: AUDIT_FULL_SCAN`              | `VERDICT: DONE` (findings in RISK REPORT comment)             |
+
+For INLINE_REVIEW with `Severity: HIGH`, the orchestrator will trigger loop-back routing.
+
+The `Verdict :` line inside Jira comments is for the audit trail — the chat-message
+trailer is what the orchestrator reads. Both are required.
+
+---
+
 ## HARD RULES
 
 - Never write fix code — only identify and recommend

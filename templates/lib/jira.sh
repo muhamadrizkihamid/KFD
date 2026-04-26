@@ -95,23 +95,151 @@ jira_post_comment() {
     --data-binary "$PAYLOAD"
 }
 
+jira_get_status() {
+  local KEY="${1:-$ISSUE_KEY}"
+  curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+    "$JIRA_URL/rest/api/3/issue/$KEY?fields=status" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d['fields'].get('status', {}).get('name', '?'))
+" 2>/dev/null || echo "?"
+}
+
+jira_list_transitions() {
+  local KEY="${1:-$ISSUE_KEY}"
+  curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+    "$JIRA_URL/rest/api/3/issue/$KEY/transitions" \
+    | jq -r '.transitions[].to.name' 2>/dev/null
+}
+
+# Aliases tried in order when the literal target name doesn't match.
+# Match is case-insensitive. Workflow names vary across Jira projects.
+_jira_transition_aliases() {
+  local TARGET_LOWER="$1"
+  case "$TARGET_LOWER" in
+    "in progress")
+      echo "In Progress"
+      echo "IN PROGRESS"
+      echo "In Development"
+      echo "In Dev"
+      echo "Doing"
+      echo "Start Progress"
+      echo "Start Work"
+      echo "Started"
+      echo "WIP"
+      ;;
+    "in review")
+      echo "In Review"
+      echo "IN REVIEW"
+      echo "Code Review"
+      echo "Review"
+      echo "Ready for Review"
+      echo "PR Review"
+      echo "QA Review"
+      ;;
+    "blocked")
+      echo "Blocked"
+      echo "BLOCKED"
+      echo "On Hold"
+      echo "Paused"
+      ;;
+    "done")
+      echo "Done"
+      echo "DONE"
+      echo "Closed"
+      echo "Resolved"
+      echo "Completed"
+      ;;
+    *)
+      # Unknown target: just try the literal value
+      echo "$1"
+      ;;
+  esac
+}
+
 jira_transition() {
   local KEY="${1:-$ISSUE_KEY}"
   local TARGET="$2"
   local TRANSITIONS
   TRANSITIONS=$(curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" \
     "$JIRA_URL/rest/api/3/issue/$KEY/transitions")
+
+  local TARGET_LOWER
+  TARGET_LOWER=$(echo "$TARGET" | tr '[:upper:]' '[:lower:]')
+
+  # 1) Try exact literal match (case-insensitive on .to.name).
   local TID
-  TID=$(echo "$TRANSITIONS" | jq -r --arg t "$TARGET" \
-    '.transitions[] | select(.to.name == $t) | .id' | head -1)
+  TID=$(echo "$TRANSITIONS" | jq -r --arg t "$TARGET_LOWER" \
+    '.transitions[] | select((.to.name | ascii_downcase) == $t) | .id' | head -1)
+  local MATCHED_NAME=""
+  if [ -n "$TID" ]; then
+    MATCHED_NAME=$(echo "$TRANSITIONS" | jq -r --arg t "$TARGET_LOWER" \
+      '.transitions[] | select((.to.name | ascii_downcase) == $t) | .to.name' | head -1)
+  fi
+
+  # 2) Walk the alias list for known target buckets.
   if [ -z "$TID" ]; then
-    echo "ERROR: no transition to '$TARGET' found for $KEY"
-    echo "Available: $(echo "$TRANSITIONS" | jq -r '.transitions[].to.name' | tr '\n' ', ')"
+    while IFS= read -r ALIAS; do
+      [ -z "$ALIAS" ] && continue
+      local ALIAS_LOWER
+      ALIAS_LOWER=$(echo "$ALIAS" | tr '[:upper:]' '[:lower:]')
+      TID=$(echo "$TRANSITIONS" | jq -r --arg t "$ALIAS_LOWER" \
+        '.transitions[] | select((.to.name | ascii_downcase) == $t) | .id' | head -1)
+      if [ -n "$TID" ]; then
+        MATCHED_NAME=$(echo "$TRANSITIONS" | jq -r --arg t "$ALIAS_LOWER" \
+          '.transitions[] | select((.to.name | ascii_downcase) == $t) | .to.name' | head -1)
+        break
+      fi
+    done < <(_jira_transition_aliases "$TARGET_LOWER")
+  fi
+
+  if [ -z "$TID" ]; then
+    local AVAILABLE
+    AVAILABLE=$(echo "$TRANSITIONS" | jq -r '.transitions[].to.name' | paste -sd ', ' -)
+    echo "ERROR: no transition to '$TARGET' (or known aliases) found for $KEY" >&2
+    echo "Available transitions: ${AVAILABLE:-<none>}" >&2
+    echo "Current status: $(jira_get_status "$KEY")" >&2
     return 1
   fi
-  curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+
+  local RESPONSE
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -u "$JIRA_EMAIL:$JIRA_TOKEN" \
     -H "Content-Type: application/json" \
     -X POST "$JIRA_URL/rest/api/3/issue/$KEY/transitions" \
-    -d "{\"transition\":{\"id\":\"$TID\"}}"
-  echo "Moved $KEY → $TARGET"
+    -d "{\"transition\":{\"id\":\"$TID\"}}")
+
+  if [ "$RESPONSE" != "204" ]; then
+    echo "ERROR: transition POST returned HTTP $RESPONSE for $KEY → '$MATCHED_NAME' (id $TID)" >&2
+    return 1
+  fi
+
+  echo "Moved $KEY → $MATCHED_NAME"
+}
+
+# Verify the issue is actually in the expected status (or one of its aliases).
+# Returns 0 on match, 1 otherwise. Use AFTER jira_transition to confirm the move took effect.
+jira_verify_transition() {
+  local KEY="${1:-$ISSUE_KEY}"
+  local EXPECTED="$2"
+  local CURRENT
+  CURRENT=$(jira_get_status "$KEY")
+  local CURRENT_LOWER EXPECTED_LOWER
+  CURRENT_LOWER=$(echo "$CURRENT" | tr '[:upper:]' '[:lower:]')
+  EXPECTED_LOWER=$(echo "$EXPECTED" | tr '[:upper:]' '[:lower:]')
+
+  if [ "$CURRENT_LOWER" = "$EXPECTED_LOWER" ]; then
+    return 0
+  fi
+
+  while IFS= read -r ALIAS; do
+    [ -z "$ALIAS" ] && continue
+    local ALIAS_LOWER
+    ALIAS_LOWER=$(echo "$ALIAS" | tr '[:upper:]' '[:lower:]')
+    if [ "$CURRENT_LOWER" = "$ALIAS_LOWER" ]; then
+      return 0
+    fi
+  done < <(_jira_transition_aliases "$EXPECTED_LOWER")
+
+  echo "VERIFY FAILED: $KEY is '$CURRENT', expected '$EXPECTED' (or alias)" >&2
+  return 1
 }

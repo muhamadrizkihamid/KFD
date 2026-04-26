@@ -115,6 +115,21 @@ EOF
 
 ---
 
+## RETURN TRAILER (REQUIRED when invoked by `/kfd:sprint`)
+
+After the Jira DONE comment is posted, end your final chat message with this line on its
+own (no markdown, no surrounding text):
+
+```
+VERDICT: DONE
+```
+
+The orchestrator parses this to advance the pipeline. The `Verdict :` line inside the Jira
+comment is for the audit trail — it is NOT a substitute for the trailer line in your chat
+message. Both are required.
+
+---
+
 ## HARD RULES
 
 - Never write production code
